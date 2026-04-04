@@ -1,3 +1,6 @@
+use tokio::sync::mpsc;
+use tokio::time::{timeout, Duration};
+
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
@@ -44,28 +47,70 @@ async fn run_server_with_default_addr() -> Result<(), Box<dyn std::error::Error>
 }
 
 /// 使用指定地址运行服务器
+/// ==========================================
+/// 服务端代码：智能抗干扰瞎子邮局
+/// ==========================================
 async fn run_server(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(addr).await?;
     println!("🚀 服务器已启动，等待两人连接 ({})...", addr);
 
-    // 等待第一个客户端
-    let (mut client_a, addr_a) = listener.accept().await?;
-    println!("👤 用户 A 已连接: {}", addr_a);
+    // 创建一个通道，用来收集“真正发送了公钥的活跃用户”
+    // 穿透软件的空连接池不会发数据，所以进不了这个通道
+    let (tx, mut rx) = mpsc::channel::<(TcpStream, [u8; 32])>(100);
 
-    // 等待第二个客户端
-    let (mut client_b, addr_b) = listener.accept().await?;
-    println!("👤 用户 B 已连接: {}", addr_b);
+    // --- 后台任务 1：专门负责将活跃用户两两配对 ---
+    tokio::spawn(async move {
+        loop {
+            // 等待第一个活跃用户
+            let (mut client_a, pub_a) = match rx.recv().await {
+                Some(c) => c,
+                None => break,
+            };
+            println!("✅ 真实用户 A 已就绪，等待用户 B...");
 
-    println!("🔗 两人已连接，开始盲目转发数据包（服务器无法解密内容）...");
+            // 等待第二个活跃用户
+            let (mut client_b, pub_b) = match rx.recv().await {
+                Some(c) => c,
+                None => break,
+            };
+            println!("✅ 真实用户 B 已就绪！正在交换公钥并建立桥接...");
 
-    // 将两个 TCP 连接互相桥接 (A -> B, B -> A)
-    // tokio::io::copy_bidirectional 会自动处理双向的数据流
-    tokio::io::copy_bidirectional(&mut client_a, &mut client_b).await?;
+            // 核心：由服务器充当中间人，把 A 的公钥发给 B，B 的公钥发给 A
+            if client_a.write_all(&pub_b).await.is_err() || client_b.write_all(&pub_a).await.is_err() {
+                println!("⚠️ 交换密钥失败，可能有人断开了连接");
+                continue;
+            }
 
-    println!("❌ 聊天结束");
-    Ok(())
+            // 启动桥接，开始盲目转发聊天数据
+            tokio::spawn(async move {
+                let _ = tokio::io::copy_bidirectional(&mut client_a, &mut client_b).await;
+                println!("❌ 这对用户的聊天已结束，连接断开");
+            });
+        }
+    });
+
+    // --- 主循环：无限接收新的 TCP 连接 ---
+    loop {
+        let (mut stream, addr) = listener.accept().await?;
+        println!("📡 收到新连接: {} (等待验证是否为真实用户...)", addr);
+        let tx = tx.clone();
+
+        // 为每个连接开一个独立任务去读取前 32 字节，不阻塞其他连接接入
+        tokio::spawn(async move {
+            let mut pub_key = [0u8; 32];
+            // 设置 30 秒超时，防止内网穿透的空闲连接池永远占用资源
+            match timeout(Duration::from_secs(30), stream.read_exact(&mut pub_key)).await {
+                Ok(Ok(_)) => {
+                    println!("🔑 收到来自 {} 的公钥，确认为活跃用户！", addr);
+                    // 把确认是活人的连接和它发来的公钥丢给配对任务
+                    let _ = tx.send((stream, pub_key)).await;
+                }
+                Ok(Err(_)) => println!("👻 连接 {} 断开或数据不足", addr),
+                Err(_) => println!("💤 连接 {} 等待超时，已忽略 (这通常是穿透软件的预留空连接)", addr),
+            }
+        });
+    }
 }
-
 /// ==========================================
 /// 客户端代码：端到端加密的核心
 /// ==========================================
