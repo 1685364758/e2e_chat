@@ -1,1 +1,1 @@
-cargo run --release -- server
+cargo run --release -- server 0.0.0.0:19198

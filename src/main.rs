@@ -20,7 +20,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match args[1].as_str() {
-        "server" => run_server().await?,
+        "server" => {
+            if args.len() < 3 {
+                run_server_with_default_addr().await?
+            } else {
+                run_server(&args[2]).await?
+            }
+        },
         "client" => run_client(&args[2]).await?,
         _ => println!("未知命令"),
     }
@@ -31,9 +37,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// ==========================================
 /// 服务端代码：一个瞎子邮局（盲目转发数据）
 /// ==========================================
-async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind("0.0.0.0:8080").await?;
-    println!("🚀 服务器已启动，等待两人连接 (0.0.0.0:8080)...");
+
+/// 使用默认地址运行服务器
+async fn run_server_with_default_addr() -> Result<(), Box<dyn std::error::Error>> {
+    run_server("0.0.0.0:19198").await
+}
+
+/// 使用指定地址运行服务器
+async fn run_server(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind(addr).await?;
+    println!("🚀 服务器已启动，等待两人连接 ({})...", addr);
 
     // 等待第一个客户端
     let (mut client_a, addr_a) = listener.accept().await?;
