@@ -1,0 +1,17 @@
+[package]
+name = "e2e_chat"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+x25519-dalek = "2.0" # 椭圆曲线密钥交换
+aes-gcm = "0.10"     # AES 加密
+rand = "0.8"         # 随机数生成
+
+[profile.release]
+opt-level = 3          # 最高等级的代码优化（默认就是 3，如果是优化体积可以用 "z"）
+lto = "fat"            # 开启“胖 LTO”。把所有依赖、标准库和你的代码揉在一起进行全局极度优化！
+codegen-units = 1      # 禁用并行代码生成。强制编译器单线程把整个程序作为一个整体来看待和优化
+panic = "abort"        # 遇到 panic 直接退出。消除展开（unwind）堆栈的冗余代码，减小体积并略微提升性能
+strip = true           # 移除二进制文件中的符号表和调试信息（减小体积，不影响运行速度）
