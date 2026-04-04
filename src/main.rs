@@ -71,6 +71,10 @@ async fn run_server(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
 /// ==========================================
 async fn run_client(server_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = TcpStream::connect(server_addr).await?;
+
+    // 👇 新增这一行：禁用 Nagle 算法，要求 TCP 立即发送数据包，不要等待！
+    stream.set_nodelay(true)?; 
+
     println!("✅ 已连接到服务器，等待对方上线以交换密钥...");
 
     // 1. 生成一次性椭圆曲线私钥 (Ephemeral Secret) 和公钥
