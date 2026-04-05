@@ -8,6 +8,9 @@ tokio = { version = "1.35", features = ["full"] }
 x25519-dalek = "2.0" # 椭圆曲线密钥交换
 aes-gcm = "0.10"     # AES 加密
 rand = "0.8"         # 随机数生成
+ratatui = "0.30"
+crossterm = "0.29"
+unicode-width = "0.2"
 
 [profile.release]
 opt-level = 3          # 最高等级的代码优化（默认就是 3，如果是优化体积可以用 "z"）
