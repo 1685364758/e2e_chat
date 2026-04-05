@@ -306,29 +306,36 @@ fn ui_draw(f: &mut Frame, app: &App) {
         .constraints([Constraint::Min(3), Constraint::Length(3)])
         .split(f.area());
 
-    // 1. 聊天记录列表
-    // 计算可显示的行数（减去边框）
+    let available_width = chunks[0].width.saturating_sub(2) as usize;
     let list_height = chunks[0].height.saturating_sub(2) as usize;
-    let messages_to_show = if app.messages.len() > list_height {
-        &app.messages[app.messages.len() - list_height..]
+
+    // 1. 处理聊天记录：支持自动换行
+    let mut all_display_lines = Vec::new();
+
+    for m in &app.messages {
+        let style = if m.sender == "我" {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::Green)
+        };
+        
+        let full_content = format!("{}: {}", m.sender, m.content);
+        // 调用手动换行函数
+        let wrapped = wrap_text(&full_content, available_width);
+        
+        for line in wrapped {
+            all_display_lines.push(ListItem::new(line).style(style));
+        }
+    }
+
+    // 只截取最后能放得下的行数
+    let lines_to_show = if all_display_lines.len() > list_height {
+        all_display_lines.drain(all_display_lines.len() - list_height..).collect()
     } else {
-        &app.messages[..]
+        all_display_lines
     };
 
-    let messages: Vec<ListItem> = messages_to_show
-        .iter()
-        .map(|m| {
-            let style = if m.sender == "我" {
-                Style::default().fg(Color::Cyan)
-            } else {
-                Style::default().fg(Color::Green)
-            };
-            let content = format!("{}: {}", m.sender, m.content);
-            ListItem::new(content).style(style)
-        })
-        .collect();
-
-    let messages_list = List::new(messages)
+    let messages_list = List::new(lines_to_show)
         .block(Block::default().borders(Borders::ALL).title(" 💬 端到端加密聊天 "));
     f.render_widget(messages_list, chunks[0]);
 
@@ -341,4 +348,27 @@ fn ui_draw(f: &mut Frame, app: &App) {
     // 设置光标位置到输入框末尾
     // 使用 UnicodeWidthStr 计算实际显示宽度，而不是字节长度
     f.set_cursor_position((chunks[1].x + app.input.width() as u16 + 1, chunks[1].y + 1));
+}
+
+/// 简单的中文字符换行工具函数
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let mut current_width = 0;
+
+    for c in text.chars() {
+        let char_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+        // 如果加入当前字符会超过宽度，则换行
+        if current_width + char_width > width && !current_line.is_empty() {
+            lines.push(current_line);
+            current_line = String::new();
+            current_width = 0;
+        }
+        current_line.push(c);
+        current_width += char_width;
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    lines
 }
